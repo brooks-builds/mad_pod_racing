@@ -6,7 +6,10 @@
   - yes
 - does the center of our pod need to cross the edge of the checkpoint?
   - yes, the center of the pod needs to cross the edge of the checkpoint, which is 600 px from center
-- is it faster to cut acceleration off and begin rotating before hitting checkpoint?
+- turning strategies
+  - decelerate on the way into marker so we can make tighter turn
+    - Problem, we might miss the marker
+  - drift through the checkpoint
 
 ## Plan
 
