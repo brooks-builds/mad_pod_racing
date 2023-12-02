@@ -54,6 +54,14 @@ fn main() {
                 if pod.velocity <= MINIMUM_VELOCITY {
                     speed = 100;
                 }
+
+                let speed =
+                    if checkpoints.is_boost_time() && next_checkpoint_angle < 5.0 && speed == 100 {
+                        "BOOST".to_owned()
+                    } else {
+                        speed.to_string()
+                    };
+
                 // are we within 600 of the target?
                 if checkpoints.get() != next_checkpoint {
                     state.change_target();
@@ -128,6 +136,7 @@ struct Checkpoints {
     checkpoints: Vec<Point>,
     all_mapped: bool,
     current_checkpoint: usize,
+    boost_on: Option<usize>,
 }
 
 impl Checkpoints {
@@ -135,6 +144,7 @@ impl Checkpoints {
         if self.have_we_seen_checkpoint(&checkpoint) {
             self.all_mapped = true;
             eprintln!("all checkpoints mapped");
+            self.calculate_boost_checkpoint();
         } else {
             self.checkpoints.push(checkpoint);
         }
@@ -152,8 +162,43 @@ impl Checkpoints {
         self.checkpoints[self.current_checkpoint]
     }
 
+    pub fn is_boost_time(&self) -> bool {
+        let current_index = self.current_checkpoint;
+        self.boost_on
+            .is_some_and(move |index| index == current_index)
+    }
+
     fn have_we_seen_checkpoint(&self, checkpoint: &Point) -> bool {
         self.checkpoints.contains(checkpoint)
+    }
+
+    fn calculate_boost_checkpoint(&mut self) {
+        let checkpoints = self.checkpoints.clone();
+        let distances = self
+            .checkpoints
+            .iter()
+            .zip(checkpoints.iter().skip(1))
+            .map(|(one, two)| one.distance_to(*two))
+            .collect::<Vec<f32>>();
+        let mut longest_distance = None;
+        let mut longest_distance_index = None;
+
+        for (index, distance) in distances.iter().enumerate() {
+            match longest_distance {
+                Some(unwrapped_longest_distance) => {
+                    if distance > unwrapped_longest_distance {
+                        longest_distance = Some(distance);
+                        longest_distance_index = Some(index);
+                    }
+                }
+                None => {
+                    longest_distance = Some(distance);
+                    longest_distance_index = Some(index);
+                }
+            }
+        }
+
+        self.boost_on = longest_distance_index;
     }
 }
 
