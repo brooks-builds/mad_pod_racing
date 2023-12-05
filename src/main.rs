@@ -38,62 +38,84 @@ fn main() {
 
         match state {
             State::Moving(target) => {
-                eprintln!("moving, our velocity is {}", pod.velocity);
-                pod.next();
-                dbg!(pod.speed);
+                pod.run(next_checkpoint_distance);
 
-                // if next_checkpoint_angle.abs() >= 5.0 && pod.angle == next_checkpoint_angle {
-                //     pod.slow_down()
-                // } else {
-                //     pod.speed_up()
-                // }
-
-                // this algorithm is always slowing us down when we don't want to
-                if next_checkpoint_angle.abs() >= pod.angle.abs() {
-                    pod.slow_down();
-                } else if next_checkpoint_angle.abs() >= 5.0 {
-                    pod.speed_up();
-                } else {
-                    pod.max_speed();
+                if checkpoints.get() != next_checkpoint {
+                    state.change_target();
                 }
-                dbg!(pod.speed);
-
-                if pod.distance_to_next < next_checkpoint_distance {
-                    pod.slow_down();
-                } else {
-                    pod.speed_up();
-                }
-                dbg!(pod.speed);
-
-                if checkpoints.is_boost_time()
-                    && next_checkpoint_angle == 0.0
-                    && next_checkpoint_distance >= 5000.0
-                {
-                    pod.boost()
-                }
-                dbg!(pod.speed);
 
                 let target = if checkpoints.all_mapped
-                    && next_checkpoint_angle == 0.0
-                    && next_checkpoint_distance <= pod.velocity * 1.25
+                    && next_checkpoint_angle.abs() <= 3.0
+                    && next_checkpoint_distance <= 2000.0
                 {
                     checkpoints.get_next().clone()
                 } else {
                     target
                 };
-                dbg!(pod.speed);
 
-                // if next_checkpoint_distance <= pod.velocity * 2.0 {
-                //     pod.slow_down();
-                // }
-
-                if checkpoints.get() != next_checkpoint {
-                    state.change_target();
+                if next_checkpoint_distance <= pod.velocity * 3.5 {
+                    pod.skip_ticks(3);
                 }
-                dbg!(pod.speed);
 
                 println!("{} {} {}", target.x, target.y, pod.get_speed());
             }
+            // State::Moving(target) => {
+            //     eprintln!("moving, our velocity is {}", pod.velocity);
+            //     pod.next();
+            //     dbg!(pod.speed);
+
+            //     // if next_checkpoint_angle.abs() >= 5.0 && pod.angle == next_checkpoint_angle {
+            //     //     pod.slow_down()
+            //     // } else {
+            //     //     pod.speed_up()
+            //     // }
+
+            //     // this algorithm is always slowing us down when we don't want to
+            //     if next_checkpoint_angle.abs() >= pod.angle.abs() {
+            //         pod.slow_down();
+            //     } else if next_checkpoint_angle.abs() >= 5.0 {
+            //         pod.speed_up();
+            //     } else {
+            //         pod.max_speed();
+            //     }
+            //     dbg!(pod.speed);
+
+            //     if pod.distance_to_next < next_checkpoint_distance {
+            //         pod.slow_down();
+            //     } else {
+            //         pod.speed_up();
+            //     }
+            //     dbg!(pod.speed);
+
+            //     if checkpoints.is_boost_time()
+            //         && next_checkpoint_angle == 0.0
+            //         && next_checkpoint_distance >= 5000.0
+            //     {
+            //         pod.boost()
+            //     }
+            //     dbg!(pod.speed);
+
+            //     let target = if checkpoints.all_mapped
+            //         && next_checkpoint_angle == 0.0
+            //         && next_checkpoint_distance <= pod.velocity * 1.25
+            //     {
+            //         checkpoints.get_next().clone()
+            //     } else {
+            //         target
+            //     };
+            //     dbg!(pod.speed);
+
+            //     // if next_checkpoint_distance <= pod.velocity * 2.0 {
+            //     //     pod.slow_down();
+            //     // }
+
+            //     if checkpoints.get() != next_checkpoint {
+            //         state.change_target();
+            //     }
+            //     dbg!(pod.speed);
+
+            //     println!("{} {} {}", target.x, target.y, pod.get_speed());
+            // }
             State::ChangingTarget => {
                 eprintln!("changing target");
                 // choose next target
@@ -251,6 +273,7 @@ struct Pod {
     boosts_used: u8,
     boosting: bool,
     distance_to_next: f32,
+    ticks_to_skip: u8,
 }
 
 impl Pod {
@@ -276,7 +299,9 @@ impl Pod {
     }
 
     pub fn clamp_speed(&mut self) {
-        self.speed = self.speed.clamp(25, 100);
+        if self.velocity < 200.0 {
+            self.speed = 50;
+        }
     }
 
     pub fn boost(&mut self) {
@@ -307,6 +332,27 @@ impl Pod {
     pub fn max_speed(&mut self) {
         self.speed = 100;
     }
+
+    pub fn run(&mut self, next_distance: f32) {
+        self.boosting = false;
+
+        if self.ticks_to_skip > 0 {
+            self.ticks_to_skip -= 1;
+            self.speed = 0;
+            self.clamp_speed();
+            return;
+        }
+
+        self.speed = 100;
+
+        if self.distance_to_next > 10_000.0 && self.angle.abs() < 0.1 && self.speed == 100 {
+            self.boost();
+        }
+    }
+
+    pub fn skip_ticks(&mut self, ticks: u8) {
+        self.ticks_to_skip = ticks;
+    }
 }
 
 impl Default for Pod {
@@ -320,6 +366,7 @@ impl Default for Pod {
             angle: Default::default(),
             boosts_used: Default::default(),
             boosting: Default::default(),
+            ticks_to_skip: Default::default(),
         }
     }
 }
