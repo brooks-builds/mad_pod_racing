@@ -1,9 +1,4 @@
-use std::{default, io, ops::Sub};
-
-const DECELERATION_DISTANCE: f32 = 1200.0;
-const DECELERATION_SPEED: i32 = 100;
-const HIGH_ANGLE_SPEED: i32 = 0;
-const HIGH_ANGLE: f32 = 90.0;
+use std::{io, ops::Sub};
 
 macro_rules! parse_input {
     ($x:expr, $t:ident) => {
@@ -38,7 +33,7 @@ fn main() {
 
         match state {
             State::Moving(target) => {
-                pod.run(next_checkpoint_distance);
+                pod.run();
 
                 if checkpoints.get() != next_checkpoint {
                     state.change_target();
@@ -59,72 +54,12 @@ fn main() {
 
                 println!("{} {} {}", target.x, target.y, pod.get_speed());
             }
-            // State::Moving(target) => {
-            //     eprintln!("moving, our velocity is {}", pod.velocity);
-            //     pod.next();
-            //     dbg!(pod.speed);
-
-            //     // if next_checkpoint_angle.abs() >= 5.0 && pod.angle == next_checkpoint_angle {
-            //     //     pod.slow_down()
-            //     // } else {
-            //     //     pod.speed_up()
-            //     // }
-
-            //     // this algorithm is always slowing us down when we don't want to
-            //     if next_checkpoint_angle.abs() >= pod.angle.abs() {
-            //         pod.slow_down();
-            //     } else if next_checkpoint_angle.abs() >= 5.0 {
-            //         pod.speed_up();
-            //     } else {
-            //         pod.max_speed();
-            //     }
-            //     dbg!(pod.speed);
-
-            //     if pod.distance_to_next < next_checkpoint_distance {
-            //         pod.slow_down();
-            //     } else {
-            //         pod.speed_up();
-            //     }
-            //     dbg!(pod.speed);
-
-            //     if checkpoints.is_boost_time()
-            //         && next_checkpoint_angle == 0.0
-            //         && next_checkpoint_distance >= 5000.0
-            //     {
-            //         pod.boost()
-            //     }
-            //     dbg!(pod.speed);
-
-            //     let target = if checkpoints.all_mapped
-            //         && next_checkpoint_angle == 0.0
-            //         && next_checkpoint_distance <= pod.velocity * 1.25
-            //     {
-            //         checkpoints.get_next().clone()
-            //     } else {
-            //         target
-            //     };
-            //     dbg!(pod.speed);
-
-            //     // if next_checkpoint_distance <= pod.velocity * 2.0 {
-            //     //     pod.slow_down();
-            //     // }
-
-            //     if checkpoints.get() != next_checkpoint {
-            //         state.change_target();
-            //     }
-            //     dbg!(pod.speed);
-
-            //     println!("{} {} {}", target.x, target.y, pod.get_speed());
-            // }
             State::ChangingTarget => {
-                eprintln!("changing target");
-                // choose next target
-
                 checkpoints.add(next_checkpoint);
                 checkpoints.next();
                 let point = checkpoints.get();
                 state.move_to(point);
-                // now move
+
                 println!("{} {} 100", point.x, point.y);
             }
         }
@@ -223,12 +158,6 @@ impl Checkpoints {
             .unwrap()
     }
 
-    pub fn is_boost_time(&self) -> bool {
-        let current_index = self.current_checkpoint;
-        self.boost_on
-            .is_some_and(move |index| index == current_index)
-    }
-
     fn have_we_seen_checkpoint(&self, checkpoint: &Point) -> bool {
         self.checkpoints.contains(checkpoint)
     }
@@ -288,16 +217,6 @@ impl Pod {
         self.position = new_position;
     }
 
-    pub fn slow_down(&mut self) {
-        self.speed = self.speed / 3;
-        self.clamp_speed();
-    }
-
-    pub fn speed_up(&mut self) {
-        self.speed = self.speed * 3;
-        self.clamp_speed();
-    }
-
     pub fn clamp_speed(&mut self) {
         if self.velocity < 200.0 {
             self.speed = 50;
@@ -321,19 +240,7 @@ impl Pod {
         }
     }
 
-    pub fn next(&mut self) {
-        self.boosting = false;
-    }
-
-    pub fn cut_speed(&mut self) {
-        self.speed = 40;
-    }
-
-    pub fn max_speed(&mut self) {
-        self.speed = 100;
-    }
-
-    pub fn run(&mut self, next_distance: f32) {
+    pub fn run(&mut self) {
         self.boosting = false;
 
         if self.ticks_to_skip > 0 {
