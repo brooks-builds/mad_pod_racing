@@ -1,5 +1,8 @@
 use std::{io, ops::Sub};
 
+const TUNE_CARDINAL_BY: f32 = 500.0;
+const TUNE_ANGLE_BY: f32 = 350.0;
+
 macro_rules! parse_input {
     ($x:expr, $t:ident) => {
         $x.trim().parse::<$t>().unwrap()
@@ -32,20 +35,20 @@ fn main() {
         pod.calculate_velocity(position);
 
         match state {
-            State::Moving(target) => {
+            State::Moving(Target { original, tuned }) => {
                 pod.run();
 
-                if checkpoints.get() != next_checkpoint {
+                if original.distance_to(pod.position) < 600.0 {
                     state.change_target();
                 }
 
                 let target = if checkpoints.all_mapped
-                    && next_checkpoint_angle.abs() <= 3.0
-                    && next_checkpoint_distance <= 2000.0
+                    && pod.angle.abs() <= 3.0
+                    && tuned.unwrap_or(original).distance_to(pod.position) <= 2000.0
                 {
                     checkpoints.get_next().clone()
                 } else {
-                    target
+                    tuned.unwrap_or(original)
                 };
 
                 if next_checkpoint_distance <= pod.velocity * 3.5 {
@@ -55,11 +58,16 @@ fn main() {
                 println!("{} {} {}", target.x, target.y, pod.get_speed());
             }
             State::ChangingTarget => {
-                checkpoints.add(next_checkpoint);
-                checkpoints.next();
-                let point = checkpoints.get();
-                state.move_to(point);
+                if !checkpoints.all_mapped {
+                    checkpoints.add(next_checkpoint);
+                }
 
+                checkpoints.next();
+
+                let target = checkpoints.get();
+                state.move_to(target);
+
+                let point = target.tuned.unwrap_or(target.original);
                 println!("{} {} 100", point.x, point.y);
             }
         }
@@ -70,13 +78,13 @@ fn main() {
 }
 
 enum State {
-    Moving(Point),
+    Moving(Target),
     ChangingTarget,
 }
 
 impl State {
-    pub fn move_to(&mut self, point: Point) {
-        *self = Self::Moving(point);
+    pub fn move_to(&mut self, target: Target) {
+        *self = Self::Moving(target);
     }
 
     pub fn change_target(&mut self) {
@@ -104,6 +112,29 @@ impl Point {
     pub fn length(&self) -> f32 {
         (self.x.powi(2) + self.y.powi(2)).sqrt()
     }
+
+    pub fn cardinal(&self, other: Point, threshold: f32) -> Cardinal {
+        let y = (self.y - other.y).abs();
+        let x = (self.x - other.x).abs();
+
+        let y = if y > threshold {
+            Cardinal::Down
+        } else if y < -threshold {
+            Cardinal::Up
+        } else {
+            Cardinal::None
+        };
+
+        let x = if x > threshold {
+            Cardinal::Right
+        } else if x < -threshold {
+            Cardinal::Left
+        } else {
+            Cardinal::None
+        };
+
+        Cardinal::combine(x, y)
+    }
 }
 
 impl Sub for Point {
@@ -122,15 +153,14 @@ struct Checkpoints {
     checkpoints: Vec<Point>,
     all_mapped: bool,
     current_checkpoint: usize,
-    boost_on: Option<usize>,
+    tuned_checkpoints: Vec<Point>,
 }
 
 impl Checkpoints {
     pub fn add(&mut self, checkpoint: Point) {
         if self.have_we_seen_checkpoint(&checkpoint) {
             self.all_mapped = true;
-            eprintln!("all checkpoints mapped");
-            self.calculate_boost_checkpoint();
+            self.tune_checkpoints();
         } else {
             self.checkpoints.push(checkpoint);
         }
@@ -144,12 +174,14 @@ impl Checkpoints {
         }
     }
 
-    pub fn get(&self) -> Point {
-        self.checkpoints[self.current_checkpoint]
+    pub fn get(&self) -> Target {
+        let original = self.checkpoints[self.current_checkpoint];
+        let tuned = self.tuned_checkpoints.get(self.current_checkpoint).copied();
+
+        Target { original, tuned }
     }
 
     pub fn get_next(&self) -> &Point {
-        dbg!("getting next:");
         self.checkpoints
             .iter()
             .cycle()
@@ -162,33 +194,47 @@ impl Checkpoints {
         self.checkpoints.contains(checkpoint)
     }
 
-    fn calculate_boost_checkpoint(&mut self) {
-        let checkpoints = self.checkpoints.clone();
-        let distances = self
+    fn tune_checkpoints(&mut self) {
+        self.tuned_checkpoints = self
             .checkpoints
             .iter()
-            .zip(checkpoints.iter().skip(1))
-            .map(|(one, two)| one.distance_to(*two))
-            .collect::<Vec<f32>>();
-        let mut longest_distance = None;
-        let mut longest_distance_index = None;
-
-        for (index, distance) in distances.iter().enumerate() {
-            match longest_distance {
-                Some(unwrapped_longest_distance) => {
-                    if distance > unwrapped_longest_distance {
-                        longest_distance = Some(distance);
-                        longest_distance_index = Some(index);
+            .enumerate()
+            .map(|(index, &current_checkpoint)| {
+                let mut tuned = current_checkpoint;
+                let next_checkpoint = self
+                    .checkpoints
+                    .get(index + 1)
+                    .copied()
+                    .unwrap_or_else(|| self.checkpoints[0]);
+                // this is off sometimes
+                let cardinal = next_checkpoint.cardinal(current_checkpoint, 10.0);
+                match cardinal {
+                    Cardinal::None => (),
+                    Cardinal::Up => tuned.y -= TUNE_CARDINAL_BY,
+                    Cardinal::UpRight => {
+                        tuned.y -= TUNE_ANGLE_BY;
+                        tuned.x += TUNE_ANGLE_BY;
+                    }
+                    Cardinal::Right => tuned.x += TUNE_CARDINAL_BY,
+                    Cardinal::DownRight => {
+                        tuned.y += TUNE_ANGLE_BY;
+                        tuned.x += TUNE_ANGLE_BY;
+                    }
+                    Cardinal::Down => tuned.y += TUNE_CARDINAL_BY,
+                    Cardinal::DownLeft => {
+                        tuned.y += TUNE_ANGLE_BY;
+                        tuned.x -= TUNE_ANGLE_BY;
+                    }
+                    Cardinal::Left => tuned.x -= TUNE_CARDINAL_BY,
+                    Cardinal::UpLeft => {
+                        tuned.y -= TUNE_ANGLE_BY;
+                        tuned.x -= TUNE_ANGLE_BY;
                     }
                 }
-                None => {
-                    longest_distance = Some(distance);
-                    longest_distance_index = Some(index);
-                }
-            }
-        }
 
-        self.boost_on = longest_distance_index;
+                tuned
+            })
+            .collect();
     }
 }
 
@@ -218,7 +264,7 @@ impl Pod {
     }
 
     pub fn clamp_speed(&mut self) {
-        if self.velocity < 200.0 {
+        if self.velocity < 100.0 {
             self.speed = 50;
         }
     }
@@ -252,7 +298,7 @@ impl Pod {
 
         self.speed = 100;
 
-        if self.distance_to_next > 10_000.0 && self.angle.abs() < 0.1 && self.speed == 100 {
+        if self.distance_to_next > 4_000.0 && self.angle.abs() < 0.1 && self.speed == 100 {
             self.boost();
         }
     }
@@ -274,6 +320,54 @@ impl Default for Pod {
             boosts_used: Default::default(),
             boosting: Default::default(),
             ticks_to_skip: Default::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct Target {
+    original: Point,
+    tuned: Option<Point>,
+}
+
+#[derive(Debug, Copy, Clone)]
+enum Cardinal {
+    None,
+    Up,
+    UpRight,
+    Right,
+    DownRight,
+    Down,
+    DownLeft,
+    Left,
+    UpLeft,
+}
+
+impl Cardinal {
+    pub fn combine(first: Self, second: Self) -> Self {
+        match first {
+            Cardinal::None => second,
+            Cardinal::Up => match second {
+                Self::Left => Self::UpLeft,
+                Self::Right => Self::UpRight,
+                _ => first,
+            },
+            Cardinal::Right => match second {
+                Self::Up => Self::UpRight,
+                Self::Down => Self::DownRight,
+                _ => first,
+            },
+            Cardinal::Down => match second {
+                Self::Left => Self::DownLeft,
+                Self::Right => Self::DownRight,
+                _ => first,
+            },
+            Cardinal::Left => match second {
+                Self::Up => Self::UpLeft,
+                Self::Down => Self::DownLeft,
+                _ => first,
+            },
+            _ => first,
         }
     }
 }
