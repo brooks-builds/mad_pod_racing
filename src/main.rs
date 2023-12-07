@@ -2,6 +2,13 @@ use std::{io, ops::Sub};
 
 const TUNE_CARDINAL_BY: f32 = 500.0;
 const TUNE_ANGLE_BY: f32 = 350.0;
+const TURN_EARLY_MODIFIER: f32 = 3.0;
+const CHECKPOINT_RADIUS: f32 = 600.0;
+const TURN_EARLY_ANGLE: f32 = 1.0;
+const TURNS_TO_SKIP: u8 = 3;
+const CLAMP_SPEED: i32 = 50;
+const BOOST_DISTANCE: f32 = 4000.0;
+const BRAKE_EARLY_MODIFIER: f32 = 5.0;
 
 macro_rules! parse_input {
     ($x:expr, $t:ident) => {
@@ -38,24 +45,44 @@ fn main() {
             State::Moving(Target { original, tuned }) => {
                 pod.run();
 
-                if original.distance_to(pod.position) < 600.0 {
+                if original.distance_to(pod.position) < CHECKPOINT_RADIUS {
                     state.change_target();
                 }
 
+                // let target = if checkpoints.all_mapped
+                //     && pod.angle.abs() <= TURN_EARLY_ANGLE
+                //     && tuned.unwrap_or(original).distance_to(pod.position) <= 2000.0
+                // {
+                //     checkpoints.get_next().clone()
+                // } else {
+                //     tuned.unwrap_or(original)
+                // };
+
                 let target = if checkpoints.all_mapped
-                    && pod.angle.abs() <= 3.0
-                    && tuned.unwrap_or(original).distance_to(pod.position) <= 2000.0
+                    && pod.angle.abs() <= TURN_EARLY_ANGLE
+                    && checkpoints.get_next().distance_to(pod.position)
+                        <= pod.velocity * TURN_EARLY_MODIFIER
                 {
+                    dbg!("getting next to turn early");
+                    pod.skip_ticks(TURNS_TO_SKIP);
                     checkpoints.get_next().clone()
                 } else {
                     tuned.unwrap_or(original)
                 };
 
-                if next_checkpoint_distance <= pod.velocity * 3.5 {
-                    pod.skip_ticks(3);
+                if !checkpoints.all_mapped
+                    && pod.distance_to_next <= pod.velocity * BRAKE_EARLY_MODIFIER
+                {
+                    pod.skip_ticks(TURNS_TO_SKIP);
                 }
 
-                println!("{} {} {}", target.x, target.y, pod.get_speed());
+                dbg!(target);
+                println!(
+                    "{} {} {}",
+                    target.x.floor(),
+                    target.y.floor(),
+                    pod.get_speed()
+                );
             }
             State::ChangingTarget => {
                 if !checkpoints.all_mapped {
@@ -68,7 +95,7 @@ fn main() {
                 state.move_to(target);
 
                 let point = target.tuned.unwrap_or(target.original);
-                println!("{} {} 100", point.x, point.y);
+                println!("{} {} 100", point.x.floor(), point.y.floor());
             }
         }
 
@@ -114,20 +141,17 @@ impl Point {
     }
 
     pub fn cardinal(&self, other: Point, threshold: f32) -> Cardinal {
-        let y = (self.y - other.y).abs();
-        let x = (self.x - other.x).abs();
-
-        let y = if y > threshold {
+        let y = if other.y - threshold > self.y {
             Cardinal::Down
-        } else if y < -threshold {
+        } else if other.y + threshold < self.y {
             Cardinal::Up
         } else {
             Cardinal::None
         };
 
-        let x = if x > threshold {
+        let x = if other.x - threshold > self.x {
             Cardinal::Right
-        } else if x < -threshold {
+        } else if other.x + threshold < self.x {
             Cardinal::Left
         } else {
             Cardinal::None
@@ -185,7 +209,7 @@ impl Checkpoints {
         self.checkpoints
             .iter()
             .cycle()
-            .skip(self.current_checkpoint)
+            .skip(self.current_checkpoint + 1)
             .next()
             .unwrap()
     }
@@ -199,36 +223,37 @@ impl Checkpoints {
             .checkpoints
             .iter()
             .enumerate()
-            .map(|(index, &current_checkpoint)| {
-                let mut tuned = current_checkpoint;
-                let next_checkpoint = self
+            .map(|(index, &next)| {
+                let mut tuned = next;
+                let current = self
                     .checkpoints
-                    .get(index + 1)
+                    .get(index - 1)
                     .copied()
-                    .unwrap_or_else(|| self.checkpoints[0]);
-                // this is off sometimes
-                let cardinal = next_checkpoint.cardinal(current_checkpoint, 10.0);
+                    .unwrap_or_else(|| self.checkpoints.last().copied().unwrap());
+
+                let cardinal = current.cardinal(next, 10.0);
+                dbg!(&cardinal, &current, &next);
                 match cardinal {
                     Cardinal::None => (),
-                    Cardinal::Up => tuned.y -= TUNE_CARDINAL_BY,
+                    Cardinal::Up => tuned.y += TUNE_CARDINAL_BY,
                     Cardinal::UpRight => {
-                        tuned.y -= TUNE_ANGLE_BY;
-                        tuned.x += TUNE_ANGLE_BY;
+                        tuned.y += TUNE_ANGLE_BY;
+                        tuned.x -= TUNE_ANGLE_BY;
                     }
-                    Cardinal::Right => tuned.x += TUNE_CARDINAL_BY,
+                    Cardinal::Right => tuned.x -= TUNE_CARDINAL_BY,
                     Cardinal::DownRight => {
-                        tuned.y += TUNE_ANGLE_BY;
-                        tuned.x += TUNE_ANGLE_BY;
-                    }
-                    Cardinal::Down => tuned.y += TUNE_CARDINAL_BY,
-                    Cardinal::DownLeft => {
-                        tuned.y += TUNE_ANGLE_BY;
-                        tuned.x -= TUNE_ANGLE_BY;
-                    }
-                    Cardinal::Left => tuned.x -= TUNE_CARDINAL_BY,
-                    Cardinal::UpLeft => {
                         tuned.y -= TUNE_ANGLE_BY;
                         tuned.x -= TUNE_ANGLE_BY;
+                    }
+                    Cardinal::Down => tuned.y -= TUNE_CARDINAL_BY,
+                    Cardinal::DownLeft => {
+                        tuned.y -= TUNE_ANGLE_BY;
+                        tuned.x += TUNE_ANGLE_BY;
+                    }
+                    Cardinal::Left => tuned.x += TUNE_CARDINAL_BY,
+                    Cardinal::UpLeft => {
+                        tuned.y += TUNE_ANGLE_BY;
+                        tuned.x += TUNE_ANGLE_BY;
                     }
                 }
 
@@ -265,7 +290,7 @@ impl Pod {
 
     pub fn clamp_speed(&mut self) {
         if self.velocity < 100.0 {
-            self.speed = 50;
+            self.speed = CLAMP_SPEED;
         }
     }
 
@@ -298,7 +323,7 @@ impl Pod {
 
         self.speed = 100;
 
-        if self.distance_to_next > 4_000.0 && self.angle.abs() < 0.1 && self.speed == 100 {
+        if self.distance_to_next > BOOST_DISTANCE && self.angle.abs() < 0.1 && self.speed == 100 {
             self.boost();
         }
     }
