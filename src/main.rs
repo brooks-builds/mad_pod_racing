@@ -1,4 +1,7 @@
-use std::{io, ops::Sub};
+use std::{
+    io,
+    ops::{Add, Sub},
+};
 
 const TUNE_CARDINAL_BY: f32 = 500.0;
 const TUNE_ANGLE_BY: f32 = 350.0;
@@ -8,7 +11,9 @@ const TURN_EARLY_ANGLE: f32 = 1.0;
 const TURNS_TO_SKIP: u8 = 3;
 const CLAMP_SPEED: i32 = 50;
 const BOOST_DISTANCE: f32 = 4000.0;
-const BRAKE_EARLY_MODIFIER: f32 = 5.0;
+const DISTANCE_TO_BRAKE_MODIFIER: f32 = 5.0;
+const SLOW_DOWN_ANGLE: f32 = 70.0;
+const SECOND_LAP_ANGLE: f32 = 90.0;
 
 macro_rules! parse_input {
     ($x:expr, $t:ident) => {
@@ -43,40 +48,48 @@ fn main() {
 
         match state {
             State::Moving(Target { original, tuned }) => {
-                pod.run();
-
                 if original.distance_to(pod.position) < CHECKPOINT_RADIUS {
                     state.change_target();
                 }
 
                 // let target = if checkpoints.all_mapped
                 //     && pod.angle.abs() <= TURN_EARLY_ANGLE
-                //     && tuned.unwrap_or(original).distance_to(pod.position) <= 2000.0
+                //     && checkpoints.get_next().distance_to(pod.position)
+                //         <= pod.velocity.length() * TURN_EARLY_MODIFIER
                 // {
                 //     checkpoints.get_next().clone()
                 // } else {
                 //     tuned.unwrap_or(original)
                 // };
 
-                let target = if checkpoints.all_mapped
-                    && pod.angle.abs() <= TURN_EARLY_ANGLE
-                    && checkpoints.get_next().distance_to(pod.position)
-                        <= pod.velocity * TURN_EARLY_MODIFIER
-                {
-                    dbg!("getting next to turn early");
-                    pod.skip_ticks(TURNS_TO_SKIP);
-                    checkpoints.get_next().clone()
-                } else {
-                    tuned.unwrap_or(original)
-                };
+                // if !checkpoints.all_mapped
+                //     && pod.distance_to_next <= pod.velocity * BRAKE_EARLY_MODIFIER
+                // {
+                //     pod.skip_ticks(TURNS_TO_SKIP);
+                // }
 
-                if !checkpoints.all_mapped
-                    && pod.distance_to_next <= pod.velocity * BRAKE_EARLY_MODIFIER
-                {
-                    pod.skip_ticks(TURNS_TO_SKIP);
+                // if checkpoints.all_mapped {
+                //     let angle = calculate_angle_to_checkpoint(
+                //         pod.position.distance_to(target),
+                //         target.distance_to(*checkpoints.get_next()),
+                //         checkpoints.get_next().distance_to(pod.position),
+                //     );
+
+                //     dbg!(angle);
+                //     if next_checkpoint_distance < 2000.0 && angle <= SECOND_LAP_ANGLE {
+                //         pod.skip_ticks(1);
+                //     }
+                // }
+
+                // dbg!(next_checkpoint_angle.abs());
+                if next_checkpoint_angle.abs() >= SLOW_DOWN_ANGLE {
+                    pod.skip_ticks(1);
                 }
 
-                dbg!(target);
+                let target = next_checkpoint + pod.velocity;
+
+                pod.run();
+
                 println!(
                     "{} {} {}",
                     target.x.floor(),
@@ -95,6 +108,7 @@ fn main() {
                 state.move_to(target);
 
                 let point = target.tuned.unwrap_or(target.original);
+                pod.run();
                 println!("{} {} 100", point.x.floor(), point.y.floor());
             }
         }
@@ -172,6 +186,17 @@ impl Sub for Point {
     }
 }
 
+impl Add for Point {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x + rhs.x,
+            y: self.y + rhs.y,
+        }
+    }
+}
+
 #[derive(Default, Debug)]
 struct Checkpoints {
     checkpoints: Vec<Point>,
@@ -232,7 +257,6 @@ impl Checkpoints {
                     .unwrap_or_else(|| self.checkpoints.last().copied().unwrap());
 
                 let cardinal = current.cardinal(next, 10.0);
-                dbg!(&cardinal, &current, &next);
                 match cardinal {
                     Cardinal::None => (),
                     Cardinal::Up => tuned.y += TUNE_CARDINAL_BY,
@@ -266,7 +290,7 @@ impl Checkpoints {
 #[derive(Debug)]
 struct Pod {
     position: Point,
-    velocity: f32,
+    velocity: Point,
     moving: bool,
     angle: f32,
     speed: i32,
@@ -279,17 +303,17 @@ struct Pod {
 impl Pod {
     pub fn calculate_velocity(&mut self, new_position: Point) {
         self.velocity = if self.moving {
-            self.position.distance_to(new_position)
+            self.position - new_position
         } else {
             self.moving = true;
-            0.0
+            Point::default()
         };
 
         self.position = new_position;
     }
 
     pub fn clamp_speed(&mut self) {
-        if self.velocity < 100.0 {
+        if self.velocity.length() < 100.0 {
             self.speed = CLAMP_SPEED;
         }
     }
@@ -395,4 +419,16 @@ impl Cardinal {
             _ => first,
         }
     }
+}
+
+/// Calculate the angle that we'll need to turn when we hit the checkpoint
+fn calculate_angle_to_checkpoint(
+    my_distance_to_target: f32,
+    target_distance_to_next: f32,
+    next_distance_to_me: f32,
+) -> f32 {
+    let step1 = (my_distance_to_target.powi(2) + target_distance_to_next.powi(2)
+        - next_distance_to_me.powi(2))
+        / (2.0 * my_distance_to_target * target_distance_to_next);
+    step1.acos().to_degrees().abs()
 }
