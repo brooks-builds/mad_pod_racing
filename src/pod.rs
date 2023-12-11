@@ -36,7 +36,8 @@ impl Pod {
 
     pub fn run(&self, checkpoints: &[Point]) -> String {
         let checkpoint = &checkpoints[self.next_checkpoint_id];
+        let target = *checkpoint - self.speed;
 
-        format!("{} {} 100", checkpoint.x, checkpoint.y)
+        format!("{} {} 100", target.x, target.y)
     }
 }

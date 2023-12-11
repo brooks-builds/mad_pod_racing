@@ -1,4 +1,6 @@
-#[derive(Debug)]
+use std::ops::Sub;
+
+#[derive(Debug, Clone, Copy)]
 pub struct Point {
     pub x: f32,
     pub y: f32,
@@ -24,6 +26,17 @@ impl From<String> for Point {
         Self {
             x: values[0],
             y: values[1],
+        }
+    }
+}
+
+impl Sub for Point {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self {
+            x: self.x - rhs.x,
+            y: self.y - rhs.y,
         }
     }
 }
