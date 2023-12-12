@@ -53,4 +53,14 @@ impl State {
         self.opponent_1 = Some(opponent_1);
         self.opponent_2 = Some(opponent_2);
     }
+
+    pub fn update(&mut self) {
+        if let Some(pod) = &mut self.pod_1 {
+            pod.update(&self.checkpoints);
+        }
+
+        if let Some(pod) = &mut self.pod_2 {
+            pod.update(&self.checkpoints);
+        }
+    }
 }
